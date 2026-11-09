@@ -7,10 +7,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
-
 # приложение запускается не от root
 RUN useradd --create-home appuser
+# --chmod: права на файлы задаются явно и не зависят от прав на компьютере разработчика
+COPY --chown=appuser:appuser --chmod=755 . .
 USER appuser
 
 EXPOSE 5000

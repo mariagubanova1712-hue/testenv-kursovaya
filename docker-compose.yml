@@ -126,4 +126,4 @@ networks:
 
 volumes:
   pgdata:
-    name: testenv_pgdata
+    name: testenv_compose_pgdata

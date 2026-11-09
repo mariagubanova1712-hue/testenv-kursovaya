@@ -71,13 +71,13 @@ def health():
         with db() as conn:
             conn.execute("SELECT 1")
         state["db"] = "ok"
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         state["db"] = f"error: {e.__class__.__name__}"
         code = 503
     try:
         cache.ping()
         state["redis"] = "ok"
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         state["redis"] = f"error: {e.__class__.__name__}"
         code = 503
     return jsonify(state), code
