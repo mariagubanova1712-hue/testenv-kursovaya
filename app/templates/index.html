@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>BugBoard — тестовая среда</title>
+  <style>
+    body { font-family: -apple-system, Arial, sans-serif; margin: 30px; background: #f4f6f8; }
+    h1 { margin-bottom: 4px; }
+    .info { color: #555; margin-bottom: 20px; }
+    table { border-collapse: collapse; width: 100%; background: #fff; }
+    th, td { border: 1px solid #ccd; padding: 8px; text-align: left; }
+    th { background: #2f5d8a; color: #fff; }
+    .critical { color: #b00020; font-weight: bold; }
+    .high { color: #d35400; }
+    form { background: #fff; padding: 15px; margin-bottom: 20px; border: 1px solid #ccd; }
+    input, select { padding: 6px; margin-right: 8px; }
+  </style>
+</head>
+<body>
+  <h1>BugBoard</h1>
+  <div class="info">Окружение: <b>{{ env }}</b> · ответил контейнер: <b>{{ host }}</b></div>
+
+  <form id="f">
+    <input name="title" placeholder="Что сломалось?" size="40" required>
+    <select name="severity">
+      <option>low</option><option selected>medium</option><option>high</option><option>critical</option>
+    </select>
+    <button>Добавить баг</button>
+  </form>
+
+  <table>
+    <tr><th>ID</th><th>Название</th><th>Серьёзность</th><th>Статус</th><th>Создан</th></tr>
+    {% for b in bugs %}
+    <tr>
+      <td>{{ b.id }}</td><td>{{ b.title }}</td>
+      <td class="{{ b.severity }}">{{ b.severity }}</td>
+      <td>{{ b.status }}</td><td>{{ b.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  <script>
+    document.getElementById('f').onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      await fetch('/api/bugs', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({title: fd.get('title'), severity: fd.get('severity')})});
+      location.reload();
+    };
+  </script>
+</body>
+</html>

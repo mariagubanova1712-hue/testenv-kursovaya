@@ -1,0 +1,129 @@
+# Тестовая среда для разработки и тестирования веб-приложения BugBoard.
+# Запуск:         docker compose up -d --build
+# Автотесты:      docker compose --profile test run --rm tests
+# Остановка:      docker compose down -v
+
+name: testenv
+
+services:
+  # 1. Обратный прокси - единая точка входа
+  nginx:
+    build: ./nginx
+    image: testenv/nginx:1.0
+    container_name: testenv-nginx
+    ports:
+      - "8080:80"
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - frontend
+    restart: unless-stopped
+
+  # 2. Тестируемое веб-приложение (Flask + Gunicorn)
+  app:
+    build: ./app
+    image: testenv/app:1.0
+    container_name: testenv-app
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      REDIS_HOST: redis
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      APP_ENV: ${APP_ENV}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    networks:
+      - frontend
+      - backend
+    restart: unless-stopped
+
+  # 3. База данных с тестовыми данными
+  db:
+    build: ./db
+    image: testenv/db:1.0
+    container_name: testenv-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # 4. Кэш
+  redis:
+    image: redis:7-alpine
+    container_name: testenv-redis
+    command: ["redis-server", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # 5. Тестовый почтовый сервер: письма не уходят наружу, их видно в веб-интерфейсе
+  mailpit:
+    image: axllent/mailpit:v1.21
+    container_name: testenv-mailpit
+    ports:
+      - "8025:8025"
+    networks:
+      - frontend   # чтобы был доступен веб-интерфейс на порту 8025
+      - backend
+    restart: unless-stopped
+
+  # 6. Веб-интерфейс для просмотра и правки базы
+  adminer:
+    image: adminer:4.8.1
+    container_name: testenv-adminer
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    ports:
+      - "8081:8080"
+    depends_on:
+      - db
+    networks:
+      - frontend
+      - backend
+    restart: unless-stopped
+
+  # 7. Контейнер с автотестами (запускается по требованию)
+  tests:
+    build: ./tests
+    image: testenv/tests:1.0
+    container_name: testenv-tests
+    profiles: ["test"]
+    environment:
+      BASE_URL: http://nginx
+      MAILPIT_URL: http://mailpit:8025
+    volumes:
+      - ./test-reports:/tests/report
+    depends_on:
+      nginx:
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
+
+networks:
+  frontend:
+    name: testenv_frontend
+  backend:
+    name: testenv_backend
+    # внутренняя сеть: из неё нет выхода в интернет, база снаружи не видна
+    internal: true
+
+volumes:
+  pgdata:
+    name: testenv_pgdata

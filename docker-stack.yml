@@ -1,0 +1,90 @@
+# Развёртывание тестовой среды в кластере Docker Swarm.
+# Образы собираются заранее (scripts/swarm-deploy.sh) или берутся из GHCR (CI/CD).
+# REGISTRY и TAG подставляются из переменных окружения.
+
+services:
+  nginx:
+    image: ${REGISTRY:-testenv}/nginx:${TAG:-1.0}
+    ports:
+      - "8080:80"
+    networks: [frontend]
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  app:
+    image: ${REGISTRY:-testenv}/app:${TAG:-1.0}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-testenv}:${POSTGRES_PASSWORD:-testenv_pass}@db:5432/${POSTGRES_DB:-bugboard}
+      REDIS_HOST: redis
+      SMTP_HOST: mailpit
+      APP_ENV: swarm
+    networks: [frontend, backend]
+    deploy:
+      replicas: 3              # три копии приложения, нагрузку делит Swarm
+      update_config:
+        parallelism: 1         # обновление по одной реплике без остановки сервиса
+        delay: 5s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: on-failure
+        max_attempts: 5
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+
+  db:
+    image: ${REGISTRY:-testenv}/db:${TAG:-1.0}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-bugboard}
+      POSTGRES_USER: ${POSTGRES_USER:-testenv}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-testenv_pass}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [backend]
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]   # том с данными живёт на менеджере
+
+  redis:
+    image: redis:7-alpine
+    networks: [backend]
+    deploy:
+      replicas: 1
+
+  mailpit:
+    image: axllent/mailpit:v1.21
+    ports:
+      - "8025:8025"
+    networks: [frontend, backend]
+    deploy:
+      replicas: 1
+
+  adminer:
+    image: adminer:4.8.1
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    ports:
+      - "8081:8080"
+    networks: [frontend, backend]
+    deploy:
+      replicas: 1
+
+networks:
+  frontend:
+    driver: overlay
+    name: testenv_frontend
+    attachable: true
+  backend:
+    driver: overlay
+    name: testenv_backend
+    internal: true
+    attachable: true           # чтобы контейнер с тестами мог подключиться к сети
+
+volumes:
+  pgdata:
