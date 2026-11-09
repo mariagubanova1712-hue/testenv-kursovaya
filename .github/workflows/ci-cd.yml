@@ -37,6 +37,7 @@ jobs:
     name: Интеграционные тесты в Docker
     runs-on: ubuntu-latest
     needs: unit
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Создание .env
@@ -94,6 +95,7 @@ jobs:
     name: Деплой в Docker Swarm
     runs-on: ubuntu-latest
     needs: delivery
+    timeout-minutes: 15
     permissions:
       packages: read
     steps:
@@ -110,17 +112,22 @@ jobs:
       - name: Инициализация кластера
         run: docker swarm init
       - name: Развёртывание стека
-        run: docker stack deploy -c docker-stack.yml --with-registry-auth testenv
+        run: docker stack deploy -c docker-stack.yml --with-registry-auth --detach=true testenv
       - name: Ожидание запуска
         run: |
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:8080/health; then echo; echo "среда запущена"; exit 0; fi
+            if curl -sf --max-time 5 http://localhost:8080/health; then echo; echo "среда запущена"; exit 0; fi
             sleep 5
           done
           docker stack ps testenv --no-trunc
           exit 1
       - name: Состояние сервисов
         run: docker stack services testenv
+      - name: Логи сервисов при ошибке
+        if: failure()
+        run: |
+          docker stack ps testenv --no-trunc
+          for s in app nginx db; do docker service logs --tail 30 testenv_$s; done
       - name: Smoke-тест на развёрнутой среде
         run: |
           docker run --rm --network testenv_frontend \
