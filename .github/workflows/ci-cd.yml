@@ -113,23 +113,29 @@ jobs:
         run: docker swarm init
       - name: Развёртывание стека
         run: docker stack deploy -c docker-stack.yml --with-registry-auth --detach=true testenv
-      - name: Ожидание запуска
+      - name: Ожидание запуска всех реплик
         run: |
-          for i in $(seq 1 30); do
-            if curl -sf --max-time 5 http://localhost:8080/health; then echo; echo "среда запущена"; exit 0; fi
-            sleep 5
+          # ждём, пока у всех сервисов фактическое число реплик совпадёт с желаемым (до 3 минут)
+          for i in $(seq 1 36); do
+            docker stack services testenv --format '{{.Name}} {{.Replicas}}'
+            if ! docker stack services testenv --format '{{.Replicas}}' | awk -F/ '$1!=$2{bad=1} END{exit bad}'; then
+              sleep 5; continue
+            fi
+            echo "все сервисы запущены"; exit 0
           done
-          docker stack ps testenv --no-trunc
           exit 1
       - name: Состояние сервисов
         run: docker stack services testenv
-      - name: Логи сервисов при ошибке
-        if: failure()
-        run: |
-          docker stack ps testenv --no-trunc
-          for s in app nginx db; do docker service logs --tail 30 testenv_$s; done
       - name: Smoke-тест на развёрнутой среде
+        # тесты запускаются в overlay-сети стека и обращаются к сервисам по именам
         run: |
           docker run --rm --network testenv_frontend \
             -e BASE_URL=http://nginx -e MAILPIT_URL=http://mailpit:8025 \
             $REGISTRY/tests:$TAG pytest -v
+      - name: Диагностика при ошибке
+        if: failure()
+        run: |
+          docker stack ps testenv --no-trunc --format '{{.Name}} {{.CurrentState}} {{.Error}}' | while read -r l; do echo "::warning::$l"; done
+          for s in app nginx db; do
+            docker service logs --tail 5 testenv_$s 2>&1 | while read -r l; do echo "::warning::$s: $l"; done
+          done
